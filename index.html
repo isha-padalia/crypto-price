@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Selected Crypto Prices — Live</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0b1221;
+      --card: #111a2f;
+      --text: #e9edf5;
+      --muted: #a9b2c7;
+      --up: #21c277;
+      --down: #ff5d5d;
+      --accent: #dfb25b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      background: linear-gradient(180deg, #0b1221 0%, #0b1221 60%, #0e1528 100%);
+      color: var(--text);
+    }
+    .wrap { max-width: 980px; margin: 32px auto; padding: 0 16px; }
+    header {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px;
+    }
+    h1 { font-size: 20px; margin: 0; letter-spacing: .3px; }
+    h1 .gold { background: linear-gradient(#dfb25b, #b77e1b); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .controls { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+    button {
+      background: #1a2442; color: var(--text); border: 1px solid #1e2a4d; border-radius: 10px; padding: 8px 12px;
+      cursor: pointer; font-weight: 600;
+    }
+    button:hover { filter: brightness(1.1); }
+    .card {
+      background: var(--card); border: 1px solid #1a2342; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,.25);
+    }
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: .4px;
+      padding: 14px 16px; background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid #1a2342;
+    }
+    tbody td {
+      padding: 14px 16px; border-bottom: 1px solid #141e38; vertical-align: middle; font-size: 15px;
+    }
+    tr:last-child td { border-bottom: none; }
+    .coincell { display: flex; align-items: center; gap: 12px; }
+    .badge {
+      width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 800;
+      background: #0f1a33; border: 1px solid #1f2a49; color: #d7def0;
+    }
+    .name { font-weight: 700; }
+    .symbol { color: var(--muted); font-size: 12px; letter-spacing: .5px; }
+    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .chg { font-size: 12px; padding: 2px 6px; border-radius: 999px; margin-left: 8px; font-weight: 700; }
+    .up { background: rgba(33, 194, 119, .14); color: var(--up); border: 1px solid rgba(33, 194, 119, .35); }
+    .down { background: rgba(255, 93, 93, .14); color: var(--down); border: 1px solid rgba(255, 93, 93, .35); }
+    .footer {
+      display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;
+      font-size: 12px; color: var(--muted); border-top: 1px solid #141e38; background: rgba(255,255,255,0.02);
+    }
+    .error { color: var(--down); font-size: 13px; }
+    @media (max-width: 640px) {
+      thead th:nth-child(3), tbody td:nth-child(3) { display: none; } /* hide INR on very small screens */
+      .symbol { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1><span class="gold">Live</span> Selected Crypto Prices</h1>
+      <div class="controls">
+        <span>Auto-refresh: <strong class="mono">30s</strong></span>
+        <button id="refreshBtn" type="button">Refresh Now</button>
+      </div>
+    </header>
+
+    <div class="card" id="prices">
+      <table>
+        <thead>
+          <tr>
+            <th>Asset</th>
+            <th>Price (USD)</th>
+            <th>Price (INR)</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <!-- rows render here -->
+        </tbody>
+      </table>
+      <div class="footer">
+        <div>Last updated: <span id="updated" class="mono">—</span></div>
+        <div id="status" class="error"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 1) Pick your coins here (CoinGecko IDs)
+    const COINS = [
+      { id: "bitcoin",       label: "Bitcoin",  symbol: "BTC" },
+      { id: "ethereum",      label: "Ethereum", symbol: "ETH" },
+      { id: "solana",        label: "Solana",   symbol: "SOL" },
+      { id: "binancecoin",   label: "BNB",      symbol: "BNB" },
+      { id: "ripple",        label: "XRP",      symbol: "XRP" },
+      { id: "dogecoin",      label: "Dogecoin", symbol: "DOGE" },
+      { id: "cardano",       label: "Cardano",  symbol: "ADA" },
+    ];
+
+    // 2) Currencies to display
+    const VS = ["usd", "inr"];
+
+    const tbody   = document.getElementById("tbody");
+    const updated = document.getElementById("updated");
+    const status  = document.getElementById("status");
+    const refreshBtn = document.getElementById("refreshBtn");
+
+    function formatUSD(n) {
+      try { return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 }).format(n); }
+      catch { return `$${Number(n).toLocaleString("en-US")}`; }
+    }
+    function formatINR(n) {
+      try { return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(n); }
+      catch { return `₹${Number(n).toLocaleString("en-IN")}`; }
+    }
+    function formatChange(n) {
+      if (n === null || n === undefined || isNaN(n)) return "—";
+      const sign = n >= 0 ? "+" : "";
+      const abs = Math.abs(n) < 1 ? n.toFixed(2) : n.toFixed(2);
+      return `${sign}${abs}%`;
+    }
+
+    function rowTemplate(coin, data) {
+      const usd = data.usd, inr = data.inr;
+      const usdCh = data.usd_24h_change, inrCh = data.inr_24h_change;
+
+      const chgUsdClass = (usdCh ?? 0) >= 0 ? "up" : "down";
+      const chgInrClass = (inrCh ?? 0) >= 0 ? "up" : "down";
+
+      return `
+        <tr>
+          <td>
+            <div class="coincell">
+              <div class="badge">${coin.symbol[0]}</div>
+              <div>
+                <div class="name">${coin.label}</div>
+                <div class="symbol">${coin.symbol}</div>
+              </div>
+            </div>
+          </td>
+          <td class="mono">
+            ${formatUSD(usd)}
+            <span class="chg ${chgUsdClass}">${formatChange(usdCh)}</span>
+          </td>
+          <td class="mono">
+            ${formatINR(inr)}
+            <span class="chg ${chgInrClass}">${formatChange(inrCh)}</span>
+          </td>
+        </tr>
+      `;
+    }
+
+    async function fetchPrices() {
+      status.textContent = "";
+      try {
+        const ids = COINS.map(c => c.id).join(",");
+        const vs  = VS.join(",");
+        const url =
+          `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids)}&vs_currencies=${encodeURIComponent(vs)}&include_24hr_change=true`;
+
+        const res = await fetch(url, { headers: { "Accept": "application/json" } });
+        if (!res.ok) throw new Error(`HTTP ${res.status} — ${res.statusText}`);
+
+        const json = await res.json();
+        tbody.innerHTML = COINS.map(c => {
+          const d = json[c.id];
+          return d ? rowTemplate(c, d) : "";
+        }).join("");
+
+        updated.textContent = new Date().toLocaleString();
+      } catch (err) {
+        console.error(err);
+        status.textContent = "Failed to load prices. Try again.";
+      }
+    }
+
+    refreshBtn.addEventListener("click", fetchPrices);
+
+    // Initial load + auto-refresh every 30s
+    fetchPrices();
+    setInterval(fetchPrices, 30000);
+  </script>
+</body>
+</html>
